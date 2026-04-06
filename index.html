@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ML Object Detection + ESP32</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+
+<!-- TensorFlow.js + COCO-SSD — runs 100% in browser, no API key needed -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+
+<style>
+[data-theme="dark"] {
+  --bg:#0a0c0f;--bg2:#111318;--bg3:#181c23;--bg4:#1e2330;
+  --border:#222730;--border2:#2e3440;
+  --accent:#00e5a0;--accent2:#00b3ff;--accent3:#ff4d6d;
+  --led-off:#1a0a0a;--led-on:#ff4400;
+  --text:#e8eaf0;--text2:#8a91a8;--text3:#4a5168;
+  --shadow:rgba(0,0,0,0.4);--card-hover:#1a1f2a;
+  --tag-bg:rgba(0,229,160,0.1);--tag-border:rgba(0,229,160,0.25);
+  --instr-bg:rgba(0,179,255,0.05);--instr-border:rgba(0,179,255,0.18);
+  --pre-color:#a8d8a8;
+}
+[data-theme="light"] {
+  --bg:#f0f2f7;--bg2:#ffffff;--bg3:#f5f7fc;--bg4:#eef1f8;
+  --border:#dde1ec;--border2:#c5cbe0;
+  --accent:#00a070;--accent2:#0077cc;--accent3:#e02040;
+  --led-off:#f5e0da;--led-on:#ff4400;
+  --text:#1a1e2e;--text2:#4a5270;--text3:#8a93b0;
+  --shadow:rgba(0,0,0,0.08);--card-hover:#f9faff;
+  --tag-bg:rgba(0,160,112,0.08);--tag-border:rgba(0,160,112,0.25);
+  --instr-bg:rgba(0,119,204,0.05);--instr-border:rgba(0,119,204,0.2);
+  --pre-color:#2a6a2a;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Space Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh;transition:background .25s,color .25s;}
+
+/* TOPBAR */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:100;box-shadow:0 2px 8px var(--shadow);}
+.topbar-logo{display:flex;align-items:center;gap:10px;}
+.logo-icon{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;}
+.topbar-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;color:var(--text);}
+.topbar-sub{font-size:10px;color:var(--text3);margin-top:1px;}
+.topbar-right{display:flex;gap:8px;align-items:center;}
+.badge-pill{font-size:10px;padding:3px 10px;border-radius:99px;font-family:'Space Mono',monospace;font-weight:700;letter-spacing:.04em;text-transform:uppercase;}
+.badge-pill.green{background:rgba(0,229,160,.12);color:var(--accent);border:1px solid rgba(0,229,160,.25);}
+.badge-pill.blue{background:rgba(0,179,255,.12);color:var(--accent2);border:1px solid rgba(0,179,255,.25);}
+.badge-pill.orange{background:rgba(255,160,0,.12);color:#ffa000;border:1px solid rgba(255,160,0,.25);}
+.theme-btn{width:36px;height:36px;border-radius:8px;background:var(--bg3);border:1px solid var(--border2);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s;color:var(--text2);}
+.theme-btn:hover{background:var(--bg4);border-color:var(--accent);}
+
+/* LAYOUT */
+.wrap{padding:18px 24px 48px;max-width:1300px;margin:0 auto;}
+.main-grid{display:grid;grid-template-columns:1fr 1fr 280px;gap:16px;align-items:start;}
+.col{display:flex;flex-direction:column;gap:14px;}
+
+/* MODEL LOADER BANNER */
+.model-banner{display:flex;align-items:center;gap:12px;background:rgba(0,179,255,.08);border:1px solid rgba(0,179,255,.2);border-radius:10px;padding:12px 16px;margin-bottom:14px;}
+.model-banner.ready{background:rgba(0,229,160,.08);border-color:rgba(0,229,160,.2);}
+.model-banner.error{background:rgba(255,77,109,.08);border-color:rgba(255,77,109,.2);}
+.model-banner-icon{font-size:22px;flex-shrink:0;}
+.model-banner-text{flex:1;}
+.model-banner-title{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--accent2);}
+.model-banner.ready .model-banner-title{color:var(--accent);}
+.model-banner.error .model-banner-title{color:var(--accent3);}
+.model-banner-sub{font-size:10px;color:var(--text3);margin-top:2px;}
+.model-progress{width:100%;height:5px;background:var(--border);border-radius:3px;margin-top:8px;overflow:hidden;}
+.model-progress-bar{height:100%;background:var(--accent2);border-radius:3px;transition:width .3s;width:0%;}
+
+/* ALERT BANNER */
+.alert-banner{display:none;align-items:center;gap:12px;background:rgba(255,77,109,.12);color:var(--accent3);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:10px 16px;font-size:13px;margin-bottom:14px;animation:slideIn .3s ease;}
+.alert-banner.show{display:flex;}
+@keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.alert-dot{width:8px;height:8px;border-radius:50%;background:var(--accent3);animation:blink .8s infinite;flex-shrink:0;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* SECTION LABEL */
+.section-label{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px;display:flex;align-items:center;gap:8px;}
+.section-label::after{content:'';flex:1;height:1px;background:var(--border);}
+
+/* CARD */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;transition:border-color .2s,background .25s;box-shadow:0 1px 4px var(--shadow);}
+.card:hover{border-color:var(--border2);background:var(--card-hover);}
+.card-head{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;display:flex;align-items:center;gap:6px;}
+
+/* PREVIEW */
+.preview-box{width:100%;aspect-ratio:16/10;background:var(--bg3);border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;}
+.preview-box video,.preview-box img{width:100%;height:100%;object-fit:cover;border-radius:8px;}
+.preview-box canvas.overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}
+.placeholder{text-align:center;padding:1.5rem;color:var(--text3);font-size:11px;line-height:1.7;}
+.placeholder .icon-big{font-size:26px;display:block;margin-bottom:6px;opacity:.5;}
+
+.upload-box{width:100%;min-height:130px;background:var(--bg3);border-radius:8px;border:2px dashed var(--border2);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;cursor:pointer;transition:border-color .2s;}
+.upload-box:hover{border-color:var(--accent);}
+.upload-box img{width:100%;height:auto;max-height:340px;object-fit:contain;display:block;}
+.upload-box canvas{width:100%;height:auto;max-height:340px;object-fit:contain;display:block;}
+
+/* BUTTONS */
+.btn-row{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center;}
+button{font-family:'Space Mono',monospace;font-size:11px;padding:6px 13px;border-radius:7px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);cursor:pointer;transition:all .15s;font-weight:700;letter-spacing:.03em;}
+button:hover:not(:disabled){background:var(--bg4);border-color:var(--text3);color:var(--text);}
+button.primary{background:rgba(0,229,160,.1);color:var(--accent);border-color:rgba(0,229,160,.35);}
+button.primary:hover:not(:disabled){background:rgba(0,229,160,.18);}
+button.danger{background:rgba(255,77,109,.1);color:var(--accent3);border-color:rgba(255,77,109,.35);}
+button.blue{background:rgba(0,179,255,.1);color:var(--accent2);border-color:rgba(0,179,255,.3);}
+button.blue:hover:not(:disabled){background:rgba(0,179,255,.18);}
+button:disabled{opacity:.35;cursor:not-allowed;}
+button.sm{font-size:10px;padding:4px 9px;}
+
+/* INPUT */
+input[type="text"],input[type="email"],input[type="url"],select{font-family:'Space Mono',monospace;font-size:11px;padding:6px 11px;border-radius:7px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);width:100%;margin-top:5px;outline:none;transition:border-color .15s,background .25s;}
+input:focus,select:focus{border-color:var(--accent);}
+input::placeholder{color:var(--text3);}
+
+/* TAGS */
+.tag-list{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;min-height:26px;}
+.tag{display:flex;align-items:center;gap:4px;background:var(--tag-bg);color:var(--accent);border:1px solid var(--tag-border);border-radius:99px;font-size:10px;padding:2px 8px;}
+.tag.detected-tag{background:rgba(0,229,160,.2);border-color:var(--accent);}
+.tag .remove{cursor:pointer;font-size:13px;line-height:1;opacity:.6;}
+.tag .remove:hover{opacity:1;}
+
+/* NOTIF TOGGLE */
+.notif-toggle{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);}
+.notif-toggle:last-child{border-bottom:none;}
+.toggle{width:32px;height:18px;border-radius:99px;background:var(--bg3);border:1px solid var(--border2);position:relative;cursor:pointer;transition:all .2s;flex-shrink:0;}
+.toggle.on{background:rgba(0,229,160,.25);border-color:var(--accent);}
+.toggle-knob{width:12px;height:12px;border-radius:50%;background:var(--text3);position:absolute;top:2px;left:2px;transition:left .2s,background .2s;}
+.toggle.on .toggle-knob{left:16px;background:var(--accent);}
+
+/* STATUS */
+.status-row{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--text3);margin-top:8px;}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--border2);flex-shrink:0;}
+.dot.active{background:var(--accent);box-shadow:0 0 5px var(--accent);}
+.dot.warn{background:#f5a623;box-shadow:0 0 5px #f5a623;}
+.dot.err{background:var(--accent3);}
+
+/* SPINNER */
+.spinner{display:none;width:14px;height:14px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .65s linear infinite;flex-shrink:0;}
+.spinner.show{display:inline-block;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* DETECTION RESULTS */
+.result-list{overflow-y:auto;}
+.result-item{display:flex;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border);gap:10px;}
+.result-item:last-child{border-bottom:none;}
+.result-main{flex:1;min-width:0;}
+.result-name{font-weight:700;color:var(--text);font-size:15px;}
+.result-note{font-size:11px;color:var(--text3);margin-top:3px;line-height:1.5;}
+.result-right{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0;}
+.conf-bar-bg{width:100px;height:7px;background:var(--border);border-radius:3px;overflow:hidden;}
+.conf-bar{height:100%;border-radius:3px;transition:width .5s;}
+.conf-val{font-size:11px;color:var(--text3);text-align:right;}
+.rbadge{font-size:11px;padding:3px 10px;border-radius:99px;font-weight:700;letter-spacing:.04em;}
+.rbadge.yes{background:rgba(0,229,160,.12);color:var(--accent);border:1px solid rgba(0,229,160,.25);}
+.rbadge.no{background:var(--bg3);color:var(--text3);border:1px solid var(--border);}
+
+.result-summary{display:flex;gap:8px;margin-bottom:10px;padding:8px 10px;background:var(--bg3);border-radius:7px;font-size:11px;align-items:center;flex-wrap:wrap;}
+.result-summary .rs-count{font-weight:700;color:var(--text);}
+.result-summary .rs-found{color:var(--accent);}
+.result-summary .rs-none{color:var(--text3);}
+.result-summary .rs-time{margin-left:auto;color:var(--text3);}
+
+/* LOG */
+.log-wrap{background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:8px 10px;font-size:10px;color:var(--text3);max-height:80px;overflow-y:auto;margin-top:8px;}
+.log-line{padding:1px 0;}
+.log-line.ok{color:var(--accent);}
+.log-line.err{color:var(--accent3);}
+.log-line.info{color:var(--accent2);}
+
+/* LED */
+.led-row{display:flex;align-items:center;gap:10px;margin:8px 0;}
+.led-bulb{width:28px;height:28px;border-radius:50%;background:var(--led-off);border:2px solid #331100;transition:all .4s;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;}
+.led-bulb.on{background:var(--led-on);border-color:#ff6622;box-shadow:0 0 12px rgba(255,68,0,.7),0 0 24px rgba(255,68,0,.3);}
+.led-info .led-state{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--text);}
+.led-info .led-sub{font-size:9px;color:var(--text3);margin-top:1px;}
+.esp-btns{display:flex;gap:5px;flex-wrap:wrap;}
+
+/* CAM TABS */
+.cam-tab-row{display:flex;gap:4px;margin-bottom:12px;background:var(--bg3);padding:3px;border-radius:8px;border:1px solid var(--border);}
+.cam-tab-btn{font-family:'Space Mono',monospace;font-size:10px;padding:5px 11px;border-radius:6px;border:1px solid transparent;background:transparent;color:var(--text3);cursor:pointer;font-weight:700;letter-spacing:.04em;transition:all .15s;flex:1;text-align:center;}
+.cam-tab-btn.active{background:var(--bg2);color:var(--accent2);border-color:rgba(0,179,255,.3);box-shadow:0 1px 3px var(--shadow);}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+
+/* PRESETS */
+.preset-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
+.preset-btn{font-size:10px;padding:3px 9px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text3);cursor:pointer;font-family:'Space Mono',monospace;font-weight:700;transition:all .15s;}
+.preset-btn:hover{background:var(--bg3);color:var(--text);border-color:var(--text3);}
+
+/* AUTOSCAN */
+.autoscan-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;font-size:11px;color:var(--text2);border-top:1px solid var(--border);margin-top:8px;}
+
+/* ESP */
+.esp32-trigger-info{font-size:10px;color:var(--text3);background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:7px 9px;margin-top:8px;line-height:1.7;}
+.esp32-trigger-info b{color:var(--accent);}
+.esp32-url-row{display:flex;gap:7px;align-items:flex-end;margin-bottom:10px;}
+.esp32-url-row>div:first-child{flex:1;}
+.esp32-url-row label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;}
+
+/* DETECTION BOX OVERLAY on canvas */
+@keyframes pulseBorder{0%,100%{border-color:var(--border)}50%{border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,229,160,.12)}}
+.preview-box.scanning{animation:pulseBorder 1s ease-in-out infinite;}
+
+/* SUPPORTED OBJECTS INFO */
+.supported-info{font-size:9px;color:var(--text3);margin-top:6px;line-height:1.6;}
+.supported-info b{color:var(--accent2);}
+
+/* LIVE DETECT TOGGLE */
+.live-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;font-size:11px;color:var(--text2);border-top:1px solid var(--border);margin-top:8px;}
+
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
+
+@media(max-width:1100px){.main-grid{grid-template-columns:1fr 260px;}.col:first-child{grid-column:1/-1;}}
+@media(max-width:700px){.main-grid{grid-template-columns:1fr;}.topbar{padding:10px 14px;}.wrap{padding:12px 14px 32px;}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo">
+    <div class="logo-icon">🔍</div>
+    <div>
+      <div class="topbar-title">ML Object Detection</div>
+      <div class="topbar-sub">TensorFlow.js · No API Key · ESP32 Integration</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span class="badge-pill orange">TF.js Local</span>
+    <span class="badge-pill green" id="espConnBadge">ESP32 ···</span>
+    <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="Toggle theme">🌙</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ALERT BANNER -->
+  <div id="alertBanner" class="alert-banner">
+    <div class="alert-dot"></div>
+    <span id="alertText">Object detected!</span>
+    <button class="sm" style="margin-left:auto;" onclick="document.getElementById('alertBanner').classList.remove('show')">✕</button>
+  </div>
+
+  <!-- MODEL LOADER BANNER -->
+  <div id="modelBanner" class="model-banner">
+    <div class="model-banner-icon">🧠</div>
+    <div class="model-banner-text">
+      <div class="model-banner-title" id="modelBannerTitle">Loading AI Model…</div>
+      <div class="model-banner-sub" id="modelBannerSub">Downloading COCO-SSD (~5MB) — runs entirely in your browser, no API key needed</div>
+      <div class="model-progress"><div class="model-progress-bar" id="modelProgressBar"></div></div>
+    </div>
+  </div>
+
+  <div class="main-grid">
+
+    <!-- COL 1 -->
+    <div class="col">
+
+      <!-- OBJECTS TO DETECT -->
+      <div>
+        <div class="section-label">Detection Targets</div>
+        <div class="card">
+          <div class="card-head">🏷️ Objects to Detect</div>
+          <div style="display:flex;gap:5px;">
+            <input type="text" id="objectInput" placeholder="e.g. person, car, cat…" style="flex:1;margin-top:0;" />
+            <button type="button" id="addObjBtn" onclick="addObject()" class="primary" style="margin-top:0;white-space:nowrap;">+ Add</button>
+          </div>
+          <div class="tag-list" id="tagList">
+            <span style="font-size:10px;color:var(--text3);">No filter — detecting all 80 objects</span>
+          </div>
+          <div class="supported-info">
+            <b>No filter = detects all 80 objects.</b> When you add a filter, <b style="color:var(--accent);">only those objects</b> appear — all others are hidden from canvas and results.<br>
+            Supports: person, car, dog, cat, bicycle, bus, truck, bird, bottle, chair, laptop, phone, and 69 more.
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:8px;text-transform:uppercase;letter-spacing:.08em;">Quick Presets</div>
+          <div class="preset-row">
+            <button class="preset-btn" onclick="addPreset(['person','car','bicycle','bus','truck'])">🚦 Traffic</button>
+            <button class="preset-btn" onclick="addPreset(['fire hydrant','stop sign'])">🔥 Hazards</button>
+            <button class="preset-btn" onclick="addPreset(['person'])">🧍 Person</button>
+            <button class="preset-btn" onclick="addPreset(['cat','dog','bird'])">🐾 Animals</button>
+            <button class="preset-btn" onclick="addPreset(['cell phone','laptop','bottle','cup'])">💼 Items</button>
+            <button class="preset-btn" onclick="clearObjects()" style="color:var(--accent3);border-color:rgba(255,77,109,.3);">✕ Clear All</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CAMERA INPUT -->
+      <div>
+        <div class="section-label">Camera Input</div>
+        <div class="card">
+          <div class="card-head">📷 Camera Source</div>
+          <div class="cam-tab-row">
+            <button class="cam-tab-btn active" onclick="switchCamTab('webcam')">💻 Webcam</button>
+            <button class="cam-tab-btn" onclick="switchCamTab('ip')">📱 IP Cam</button>
+          </div>
+
+          <!-- Webcam Panel -->
+          <div id="panel-webcam" class="tab-panel active">
+            <div class="preview-box" id="camPreview" style="aspect-ratio:16/10;">
+              <div class="placeholder" id="camPlaceholder"><span class="icon-big">📷</span>Webcam not started</div>
+              <video id="camVideo" style="display:none;" autoplay playsinline muted></video>
+              <canvas id="camCanvas" class="overlay" style="display:none;"></canvas>
+            </div>
+            <div class="btn-row">
+              <button id="startCamBtn" onclick="startCamera()">▶ Start</button>
+              <button id="stopCamBtn" onclick="stopCamera()" disabled>■ Stop</button>
+              <button class="primary" id="scanBtn" onclick="scanFrame()" disabled>🔍 Scan Frame</button>
+              <div class="spinner" id="camSpinner"></div>
+            </div>
+            <div class="live-row">
+              <span>🔴 Live detect (auto every 2s)</span>
+              <div class="toggle" id="tog-live" onclick="toggleLive()"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="status-row">
+              <div class="dot" id="camStatus"></div>
+              <span id="camStatusText">Camera inactive</span>
+            </div>
+          </div>
+
+          <!-- IP Camera Panel -->
+          <div id="panel-ip" class="tab-panel">
+            <div style="font-size:10px;color:var(--text3);margin-bottom:7px;">Use your phone as a wireless camera via IP Webcam app.</div>
+            <label style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;">IP Camera URL (MJPEG stream)</label>
+            <input type="url" id="ipCamUrl" placeholder="http://192.168.1.x:8080/video" />
+            <div class="preview-box" id="ipPreview" style="margin-top:8px;aspect-ratio:16/10;">
+              <div class="placeholder" id="ipPlaceholder"><span class="icon-big">📱</span>No stream connected</div>
+              <img id="ipImg" style="display:none;" alt="IP cam" crossorigin="anonymous" />
+              <canvas id="ipCanvas" class="overlay" style="display:none;"></canvas>
+            </div>
+            <div class="btn-row">
+              <button class="blue" onclick="connectIpCam()">🔗 Connect</button>
+              <button onclick="disconnectIpCam()">✕ Disconnect</button>
+              <button class="primary" id="ipScanBtn" onclick="scanIpFrame()" disabled>🔍 Scan Frame</button>
+              <div class="spinner" id="ipSpinner"></div>
+            </div>
+            <div class="status-row">
+              <div class="dot" id="ipStatus"></div>
+              <span id="ipStatusText">Not connected</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /col1 -->
+
+    <!-- COL 2 -->
+    <div class="col">
+
+      <!-- IMAGE UPLOAD -->
+      <div>
+        <div class="section-label">Image Upload</div>
+        <div class="card">
+          <div class="card-head">🖼️ Upload &amp; Analyze</div>
+          <div class="upload-box" id="uploadPreview"
+               ondragover="event.preventDefault()" ondrop="handleDrop(event)"
+               onclick="document.getElementById('fileInput').click()">
+            <div class="placeholder" id="uploadPlaceholder">
+              <span class="icon-big">⬆️</span>
+              Drop image or click to browse<br>
+              <span style="font-size:9px;">JPG, PNG, WEBP</span>
+            </div>
+            <img id="uploadedImg" style="display:none;width:100%;height:auto;max-height:340px;object-fit:contain;" alt="Uploaded" />
+            <canvas id="uploadCanvas" style="display:none;width:100%;height:auto;max-height:340px;object-fit:contain;"></canvas>
+          </div>
+          <input type="file" id="fileInput" accept="image/*" style="display:none;" onchange="handleFile(event)" />
+          <canvas id="uploadCanvas" style="display:none;"></canvas>
+          <div class="btn-row">
+            <button onclick="document.getElementById('fileInput').click()">📂 Browse</button>
+            <button class="primary" id="analyzeBtn" onclick="analyzeImage()" disabled>🔍 Detect</button>
+            <button onclick="clearUpload()" style="margin-left:auto;">✕ Clear</button>
+            <div class="spinner" id="analyzeSpinner"></div>
+          </div>
+          <div class="status-row">
+            <div class="dot" id="uploadStatus"></div>
+            <span id="uploadStatusText">No image loaded</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- DETECTION RESULTS -->
+      <div>
+        <div class="section-label">Detection Results</div>
+        <div class="card">
+          <div class="card-head">📊 Detection Results
+            <span class="spinner" id="resultSpinner" style="margin-left:auto;"></span>
+          </div>
+          <div id="resultSummary" style="display:none;" class="result-summary">
+            <span class="rs-count" id="rsTotalCount">0 objects</span>
+            <span>·</span>
+            <span class="rs-found" id="rsFoundCount">0 detected</span>
+            <span>·</span>
+            <span class="rs-none" id="rsNoneCount">0 not found</span>
+            <span class="rs-time" id="rsTime"></span>
+          </div>
+          <div class="result-list" id="resultList" style="max-height:340px;">
+            <div style="font-size:12px;color:var(--text3);padding:12px 0;text-align:center;">
+              Model loading… then point camera or upload image.
+            </div>
+          </div>
+          <div class="log-wrap" id="logWrap">
+            <div class="log-line">[system] Loading TensorFlow.js model…</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /col2 -->
+
+    <!-- COL 3 — Sidebar -->
+    <div class="col">
+
+      <!-- NOTIFICATIONS -->
+      <div>
+        <div class="section-label">Notifications</div>
+        <div class="card">
+          <div class="card-head">🔔 Alerts</div>
+          <div class="notif-toggle">On-screen alert<div class="toggle on" id="tog-screen" onclick="toggleNotif('screen')"><div class="toggle-knob"></div></div></div>
+          <div class="notif-toggle">Sound beep<div class="toggle on" id="tog-sound" onclick="toggleNotif('sound')"><div class="toggle-knob"></div></div></div>
+          <div class="notif-toggle">ESP32 LED trigger<div class="toggle on" id="tog-esp" onclick="toggleNotif('esp')"><div class="toggle-knob"></div></div></div>
+          <div class="notif-toggle">Email notification<div class="toggle" id="tog-email" onclick="toggleNotif('email')"><div class="toggle-knob"></div></div></div>
+          <div class="email-input-wrap" id="emailWrap">
+            <input type="email" id="emailInput" placeholder="your@email.com" />
+          </div>
+        </div>
+      </div>
+
+      <!-- ESP32 -->
+      <div>
+        <div class="section-label">Hardware Control</div>
+        <div class="card">
+          <div class="card-head">⚡ ESP32 LED</div>
+          <div class="esp32-url-row">
+            <div>
+              <label>ESP32 IP Address</label>
+              <input type="text" id="espIp" value="192.168.1.100" style="margin-top:4px;" />
+            </div>
+            <button class="blue sm" onclick="testEsp32()">↑ Test
+              <div class="spinner" id="espSpinner" style="display:inline-block;display:none;"></div>
+            </button>
+          </div>
+          <div class="led-row">
+            <div class="led-bulb" id="ledBulb">💡</div>
+            <div class="led-info">
+              <div class="led-state" id="ledStateText">LED OFF</div>
+              <div class="led-sub" id="ledSubText">Waiting for trigger</div>
+            </div>
+          </div>
+          <div class="esp-btns">
+            <button class="primary sm" onclick="ledOn()">💡 ON</button>
+            <button class="danger sm" onclick="ledOff()">⬛ OFF</button>
+            <button class="blue sm" onclick="ledBlink()">✦ Blink</button>
+          </div>
+          <div class="esp32-trigger-info">
+            <b>Auto:</b> LED turns ON when target detected, OFF after <b>5s</b>.<br>
+            Blinks for <b style="color:var(--accent3);">critical objects</b> (person at night, etc).
+          </div>
+          <div class="status-row">
+            <div class="dot" id="espStatus"></div>
+            <span id="espStatusText">ESP32 not tested</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /col3 -->
+
+  </div><!-- /main-grid -->
+</div><!-- /wrap -->
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let tfModel = null;
+let objects = [];           // filter list (empty = detect all)
+let camStream = null;
+let notifs = { screen:true, sound:true, esp:true, email:false };
+let emailAddr = '';
+let uploadedImgEl = null;
+let ipConnected = false;
+let ledState = false;
+let ledTimeout = null;
+let currentCamTab = 'webcam';
+let theme = 'dark';
+let liveDetect = false;
+let liveTimer = null;
+
+// ─── Load TensorFlow Model ────────────────────────────────────────────────────
+async function loadModel() {
+  try {
+    animateProgress(0, 60, 1200);
+    addLog('Loading COCO-SSD model…', 'info');
+    tfModel = await cocoSsd.load();
+    animateProgress(60, 100, 400);
+    setTimeout(() => {
+      const banner = document.getElementById('modelBanner');
+      banner.classList.add('ready');
+      document.getElementById('modelBannerTitle').textContent = '✅ Model Ready — No API Key Needed!';
+      document.getElementById('modelBannerSub').textContent = 'COCO-SSD loaded. Detects 80 object types entirely in your browser.';
+      document.getElementById('modelProgressBar').style.width = '100%';
+      document.getElementById('modelProgressBar').style.background = 'var(--accent)';
+      addLog('COCO-SSD model loaded successfully!', 'ok');
+      document.getElementById('resultList').innerHTML = '<div style="font-size:12px;color:var(--text3);padding:12px 0;text-align:center;">Ready! Start camera or upload an image.</div>';
+      setTimeout(() => { banner.style.display = 'none'; }, 4000);
+    }, 500);
+  } catch(e) {
+    const banner = document.getElementById('modelBanner');
+    banner.classList.add('error');
+    document.getElementById('modelBannerTitle').textContent = '❌ Model Failed to Load';
+    document.getElementById('modelBannerSub').textContent = 'Check internet connection. ' + e.message;
+    addLog('Model load error: ' + e.message, 'err');
+  }
+}
+
+function animateProgress(from, to, duration) {
+  const bar = document.getElementById('modelProgressBar');
+  const start = Date.now();
+  const tick = () => {
+    const p = Math.min(1, (Date.now()-start)/duration);
+    bar.style.width = (from + (to-from)*p) + '%';
+    if(p < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+document.getElementById('objectInput').addEventListener('keydown', e => {
+  if(e.key === 'Enter') { e.preventDefault(); addObject(); }
+});
+document.getElementById('emailInput').addEventListener('change', e => { emailAddr = e.target.value; });
+loadModel();
+
+// ─── Theme ────────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('themeBtn').textContent = theme === 'dark' ? '🌙' : '☀️';
+}
+
+// ─── Camera Tabs ──────────────────────────────────────────────────────────────
+function switchCamTab(name) {
+  currentCamTab = name;
+  document.querySelectorAll('.cam-tab-btn').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('onclick').includes("'" + name + "'"));
+  });
+  ['webcam','ip'].forEach(t => {
+    const el = document.getElementById('panel-' + t);
+    if(el) el.classList.toggle('active', t === name);
+  });
+  if(name !== 'webcam') stopCamera();
+}
+
+// ─── Objects ──────────────────────────────────────────────────────────────────
+function addObject() {
+  const inp = document.getElementById('objectInput');
+  const raw = (inp.value || '').trim().toLowerCase();
+  if(!raw) { inp.focus(); return; }
+  const items = raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
+  let added = 0;
+  items.forEach(v => { if(!objects.includes(v)) { objects.push(v); added++; } });
+  inp.value = '';
+  renderTags();
+  if(added) addLog('Filtering for: ' + items.join(', '), 'info');
+  inp.focus();
+}
+
+function addPreset(arr) {
+  arr.forEach(o => { if(!objects.includes(o)) objects.push(o); });
+  renderTags();
+  addLog('Preset: ' + arr.join(', '), 'info');
+}
+
+function clearObjects() {
+  objects = [];
+  renderTags();
+  addLog('Filter cleared — detecting all objects', 'info');
+}
+
+function renderTags() {
+  const tl = document.getElementById('tagList');
+  tl.innerHTML = '';
+  if(!objects.length) {
+    tl.innerHTML = '<span style="font-size:10px;color:var(--text3);">No filter — detecting all 80 objects</span>';
+    return;
+  }
+  objects.forEach(o => {
+    const tag = document.createElement('div');
+    tag.className = 'tag';
+    tag.appendChild(document.createTextNode(o));
+    const rm = document.createElement('span');
+    rm.className = 'remove';
+    rm.textContent = '×';
+    rm.addEventListener('click', () => { objects = objects.filter(x => x !== o); renderTags(); });
+    tag.appendChild(rm);
+    tl.appendChild(tag);
+  });
+}
+
+// ─── TensorFlow Detection Core ────────────────────────────────────────────────
+async function runDetection(imageElement, canvasElement, sourceLabel) {
+  if(!tfModel) { addLog('Model not loaded yet. Please wait.', 'err'); return null; }
+  document.getElementById('resultSpinner').classList.add('show');
+  const t0 = Date.now();
+  try {
+    const predictions = await tfModel.detect(imageElement, 20, 0.30);
+    document.getElementById('resultSpinner').classList.remove('show');
+
+    // Draw bounding boxes — will be refined after filter is computed below
+
+    // Synonym map: user words → COCO-SSD class names
+    const SYNONYMS = {
+      'human': ['person'], 'man': ['person'], 'woman': ['person'], 'people': ['person'],
+      'girl': ['person'], 'boy': ['person'], 'child': ['person'], 'kid': ['person'],
+      'vehicle': ['car','bus','truck','motorcycle','bicycle'],
+      'phone': ['cell phone'], 'mobile': ['cell phone'], 'cellphone': ['cell phone'],
+      'motorbike': ['motorcycle'], 'bike': ['bicycle','motorcycle'],
+      'aeroplane': ['airplane'], 'plane': ['airplane'],
+      'sofa': ['couch'], 'settee': ['couch'],
+      'tv': ['tv'], 'television': ['tv'], 'monitor': ['tv'],
+      'bag': ['handbag','backpack','suitcase'], 'purse': ['handbag'],
+    };
+    function matchesFilter(predClass, filterWord) {
+      const pc = predClass.toLowerCase();
+      const fw = filterWord.toLowerCase();
+      if(pc === fw || pc.includes(fw) || fw.includes(pc)) return true;
+      const syns = SYNONYMS[fw] || [];
+      return syns.some(s => pc === s || pc.includes(s));
+    }
+    const filtered = objects.length
+      ? predictions.filter(p => objects.some(o => matchesFilter(p.class, o)))
+      : predictions;
+
+    // Draw bounding boxes — only filtered objects when filter is active
+    const boxesToDraw = objects.length ? filtered : predictions;
+    if(canvasElement) drawBoxes(canvasElement, imageElement, boxesToDraw, filtered, objects.length > 0);
+
+    const elapsed = Date.now() - t0;
+    addLog(sourceLabel + ': ' + filtered.length + ' object(s) found in ' + elapsed + 'ms', filtered.length ? 'ok' : '');
+    return { predictions, filtered, elapsed };
+  } catch(e) {
+    document.getElementById('resultSpinner').classList.remove('show');
+    addLog('Detection error: ' + e.message, 'err');
+    return null;
+  }
+}
+
+function drawBoxes(canvas, imgEl, predictions, allFiltered, filterActive) {
+  const w = imgEl.videoWidth || imgEl.naturalWidth || imgEl.width || 640;
+  const h = imgEl.videoHeight || imgEl.naturalHeight || imgEl.height || 480;
+  canvas.width = w;
+  canvas.height = h;
+  canvas.style.display = 'block';
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+
+  // Subtle dark overlay hint when filter is active
+  if(filterActive && allFiltered && allFiltered.length === 0 && predictions.length === 0) {
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(0,0,w,h);
+  }
+
+  predictions.forEach(p => {
+    const [x, y, bw, bh] = p.bbox;
+    const pct = Math.round(p.score * 100);
+    const color = pct >= 80 ? '#00e5a0' : pct >= 55 ? '#ffa000' : '#ff4d6d';
+
+    // Rounded box
+    const r = 5;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + bw - r, y);
+    ctx.quadraticCurveTo(x + bw, y, x + bw, y + r);
+    ctx.lineTo(x + bw, y + bh - r);
+    ctx.quadraticCurveTo(x + bw, y + bh, x + bw - r, y + bh);
+    ctx.lineTo(x + r, y + bh);
+    ctx.quadraticCurveTo(x, y + bh, x, y + bh - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 6;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Label background
+    const label = p.class + ' ' + pct + '%';
+    ctx.font = 'bold 13px "Space Mono", monospace';
+    const tw = ctx.measureText(label).width;
+    const lx = x;
+    const ly = y > 22 ? y - 22 : y + bh;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.92;
+    // Pill-shaped label bg
+    const lh = 20, lr = 4, lw2 = tw + 12;
+    ctx.beginPath();
+    ctx.moveTo(lx + lr, ly);
+    ctx.lineTo(lx + lw2 - lr, ly);
+    ctx.quadraticCurveTo(lx + lw2, ly, lx + lw2, ly + lr);
+    ctx.lineTo(lx + lw2, ly + lh - lr);
+    ctx.quadraticCurveTo(lx + lw2, ly + lh, lx + lw2 - lr, ly + lh);
+    ctx.lineTo(lx + lr, ly + lh);
+    ctx.quadraticCurveTo(lx, ly + lh, lx, ly + lh - lr);
+    ctx.lineTo(lx, ly + lr);
+    ctx.quadraticCurveTo(lx, ly, lx + lr, ly);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Label text
+    ctx.fillStyle = '#000';
+    ctx.fillText(label, lx + 6, ly + 14);
+  });
+}
+
+// ─── Webcam ───────────────────────────────────────────────────────────────────
+async function startCamera() {
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video:{ width:{ideal:1280}, height:{ideal:720} } });
+    const video = document.getElementById('camVideo');
+    video.srcObject = camStream;
+    video.style.display = 'block';
+    document.getElementById('camPlaceholder').style.display = 'none';
+    document.getElementById('camCanvas').style.display = 'block';
+    document.getElementById('startCamBtn').disabled = true;
+    document.getElementById('stopCamBtn').disabled = false;
+    document.getElementById('scanBtn').disabled = false;
+    setDot('camStatus', 'active');
+    document.getElementById('camStatusText').textContent = 'Camera active';
+    addLog('Webcam started.', 'ok');
+  } catch(e) {
+    addLog('Camera error: ' + e.message, 'err');
+  }
+}
+
+function stopCamera() {
+  if(camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  stopLive();
+  const video = document.getElementById('camVideo');
+  video.style.display = 'none';
+  document.getElementById('camCanvas').style.display = 'none';
+  document.getElementById('camPlaceholder').style.display = 'block';
+  document.getElementById('startCamBtn').disabled = false;
+  document.getElementById('stopCamBtn').disabled = true;
+  document.getElementById('scanBtn').disabled = true;
+  document.getElementById('camPreview').classList.remove('scanning');
+  setDot('camStatus', '');
+  document.getElementById('camStatusText').textContent = 'Camera inactive';
+  addLog('Webcam stopped.');
+}
+
+async function scanFrame() {
+  const video = document.getElementById('camVideo');
+  if(!video || video.readyState < 2) { addLog('Camera not ready.', 'err'); return; }
+  document.getElementById('camPreview').classList.add('scanning');
+  const canvas = document.getElementById('camCanvas');
+  const result = await runDetection(video, canvas, 'Webcam');
+  document.getElementById('camPreview').classList.remove('scanning');
+  if(result) { renderResults(result); triggerAlerts(result.filtered); }
+}
+
+// ─── Live Detection ───────────────────────────────────────────────────────────
+function toggleLive() {
+  liveDetect = !liveDetect;
+  document.getElementById('tog-live').classList.toggle('on', liveDetect);
+  if(liveDetect) {
+    if(!camStream) { addLog('Start camera first.', 'err'); liveDetect = false; document.getElementById('tog-live').classList.remove('on'); return; }
+    addLog('Live detection ON — scanning every 2s', 'info');
+    liveTimer = setInterval(scanFrame, 2000);
+  } else {
+    stopLive();
+    addLog('Live detection OFF');
+  }
+}
+
+function stopLive() {
+  if(liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+  liveDetect = false;
+  document.getElementById('tog-live').classList.remove('on');
+}
+
+// ─── IP Camera ────────────────────────────────────────────────────────────────
+function connectIpCam() {
+  const url = document.getElementById('ipCamUrl').value.trim();
+  if(!url) { addLog('Enter IP cam URL.', 'err'); return; }
+  const img = document.getElementById('ipImg');
+  img.src = url; img.style.display = 'block';
+  document.getElementById('ipPlaceholder').style.display = 'none';
+  ipConnected = true;
+  document.getElementById('ipScanBtn').disabled = false;
+  setDot('ipStatus', 'active');
+  document.getElementById('ipStatusText').textContent = 'Connected: ' + url;
+  addLog('IP camera connected.', 'ok');
+}
+
+function disconnectIpCam() {
+  const img = document.getElementById('ipImg');
+  img.src = ''; img.style.display = 'none';
+  document.getElementById('ipPlaceholder').style.display = 'block';
+  ipConnected = false;
+  document.getElementById('ipScanBtn').disabled = true;
+  setDot('ipStatus', '');
+  document.getElementById('ipStatusText').textContent = 'Not connected';
+}
+
+async function scanIpFrame() {
+  const img = document.getElementById('ipImg');
+  if(!ipConnected) { addLog('No IP camera connected.', 'err'); return; }
+  try {
+    const canvas = document.getElementById('ipCanvas');
+    const result = await runDetection(img, canvas, 'IP Cam');
+    if(result) { renderResults(result); triggerAlerts(result.filtered); }
+  } catch(e) {
+    addLog('IP frame error (CORS). Try webcam or image upload.', 'err');
+  }
+}
+
+// ─── File Upload ──────────────────────────────────────────────────────────────
+function handleDrop(e) {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if(f && f.type.startsWith('image/')) loadImageFile(f);
+}
+function handleFile(e) { const f = e.target.files[0]; if(f) loadImageFile(f); }
+function loadImageFile(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = document.getElementById('uploadedImg');
+    // Reset canvas first
+    const canvas = document.getElementById('uploadCanvas');
+    canvas.style.display = 'none';
+    img.onload = () => { uploadedImgEl = img; };
+    img.src = ev.target.result;
+    img.style.display = 'block';
+    document.getElementById('uploadPlaceholder').style.display = 'none';
+    document.getElementById('analyzeBtn').disabled = false;
+    setDot('uploadStatus', 'active');
+    document.getElementById('uploadStatusText').textContent = file.name;
+    addLog('Image loaded: ' + file.name, 'info');
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearUpload() {
+  uploadedImgEl = null;
+  const img = document.getElementById('uploadedImg');
+  img.style.display = 'none'; img.src = '';
+  const canvas = document.getElementById('uploadCanvas');
+  canvas.style.display = 'none';
+  canvas.style.width = '';
+  canvas.style.height = '';
+  canvas.style.marginTop = '';
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  document.getElementById('uploadPlaceholder').style.display = 'flex';
+  document.getElementById('analyzeBtn').disabled = true;
+  setDot('uploadStatus', '');
+  document.getElementById('uploadStatusText').textContent = 'No image loaded';
+  document.getElementById('fileInput').value = '';
+  clearResults();
+}
+
+async function analyzeImage() {
+  const img = document.getElementById('uploadedImg');
+  if(!img || !img.src) return;
+  document.getElementById('analyzeSpinner').classList.add('show');
+  document.getElementById('analyzeBtn').disabled = true;
+
+  const result = await runDetection(img, null, 'Image');
+  document.getElementById('analyzeSpinner').classList.remove('show');
+  document.getElementById('analyzeBtn').disabled = false;
+
+  if(result) {
+    // Always draw image + boxes on canvas and show it below the upload area
+    const canvas = document.getElementById('uploadCanvas');
+    canvas.width = img.naturalWidth || 640;
+    canvas.height = img.naturalHeight || 480;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    if(result.predictions.length) {
+      const boxesToDraw = objects.length ? result.filtered : result.predictions;
+      drawBoxes(canvas, img, boxesToDraw, result.filtered, objects.length > 0);
+    }
+    // Show canvas as a full annotated preview BELOW the upload box
+    canvas.style.display = 'block';
+    canvas.style.width = '100%';
+    canvas.style.height = 'auto';
+    canvas.style.borderRadius = '8px';
+    canvas.style.marginTop = '10px';
+    canvas.style.border = '1px solid var(--border2)';
+    renderResults(result);
+    triggerAlerts(result.filtered);
+    document.getElementById('resultList').scrollIntoView({ behavior:'smooth', block:'nearest' });
+  }
+}
+
+// ─── Render Results ───────────────────────────────────────────────────────────
+function clearResults() {
+  document.getElementById('resultList').innerHTML = '<div style="font-size:12px;color:var(--text3);padding:12px 0;text-align:center;">Run detection to see results.</div>';
+  document.getElementById('resultSummary').style.display = 'none';
+}
+
+function renderResults({ predictions, filtered, elapsed }) {
+  const rl = document.getElementById('resultList');
+
+  // Summary
+  const summary = document.getElementById('resultSummary');
+  summary.style.display = 'flex';
+  document.getElementById('rsTotalCount').textContent = predictions.length + ' detected';
+  document.getElementById('rsFoundCount').textContent = filtered.length + ' matched filter';
+  document.getElementById('rsNoneCount').textContent = (predictions.length - filtered.length) + ' hidden';
+  document.getElementById('rsTime').textContent = elapsed ? (elapsed + 'ms') : '';
+
+  if(!predictions.length) {
+    rl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:12px 0;text-align:center;">No objects detected in this frame.</div>';
+    return;
+  }
+
+  const filterActive = objects.length > 0;
+
+  // When filter is active: show only matched items. When no filter: show all.
+  const toShow = filterActive ? filtered : [...predictions].sort((a,b) => b.score - a.score);
+
+  if(filterActive && toShow.length === 0) {
+    rl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:12px 0;text-align:center;">No matching objects found. (' + predictions.length + ' other objects hidden by filter)</div>';
+    return;
+  }
+
+  const sorted = [...toShow].sort((a, b) => b.score - a.score);
+
+  rl.innerHTML = sorted.map(p => {
+    const pct = Math.round(p.score * 100);
+    const barColor = pct >= 80 ? 'var(--accent)' : pct >= 55 ? '#ffa000' : 'var(--accent3)';
+    const [x, y, w, h] = p.bbox.map(v => Math.round(v));
+    return `
+    <div class="result-item">
+      <div class="result-main">
+        <div class="result-name">${p.class}</div>
+        <div class="result-note">Position: x${x} y${y} · Size: ${w}×${h}px</div>
+      </div>
+      <div class="result-right">
+        <span class="rbadge yes">✓ Match</span>
+        <div class="conf-bar-bg"><div class="conf-bar" style="width:${pct}%;background:${barColor};"></div></div>
+        <span class="conf-val">${pct}%</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  // If filter active, show a small note about hidden objects
+  if(filterActive && predictions.length > filtered.length) {
+    rl.innerHTML += `<div style="font-size:10px;color:var(--text3);padding:6px 0;text-align:center;border-top:1px solid var(--border);margin-top:6px;">${predictions.length - filtered.length} other object(s) hidden by filter</div>`;
+  }
+}
+
+// ─── Alerts ───────────────────────────────────────────────────────────────────
+function triggerAlerts(filtered) {
+  if(!filtered.length) return;
+  const names = [...new Set(filtered.map(f => f.class))].join(', ');
+  if(notifs.screen) showScreenAlert(names);
+  if(notifs.sound) playBeep();
+  if(notifs.esp) triggerESP32(filtered);
+  if(notifs.email && emailAddr) addLog('Email → ' + emailAddr + ' (simulated)', 'info');
+}
+
+function showScreenAlert(names) {
+  const b = document.getElementById('alertBanner');
+  document.getElementById('alertText').textContent = '🚨 Detected: ' + names;
+  b.classList.add('show');
+  setTimeout(() => b.classList.remove('show'), 5000);
+}
+
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(); osc.stop(ctx.currentTime + 0.4);
+  } catch(e) {}
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+function toggleNotif(type) {
+  notifs[type] = !notifs[type];
+  document.getElementById('tog-' + type).classList.toggle('on', notifs[type]);
+  if(type === 'email') document.getElementById('emailWrap').classList.toggle('show', notifs[type]);
+}
+
+// ─── ESP32 ────────────────────────────────────────────────────────────────────
+function getEspIp() { return document.getElementById('espIp').value.trim() || '192.168.1.100'; }
+async function espRequest(state) {
+  const ip = getEspIp();
+  try {
+    await fetch('http://' + ip + '/led?state=' + state, { mode:'no-cors', signal:AbortSignal.timeout(3000) });
+    return true;
+  } catch(e) {
+    addLog('ESP32 error: ' + e.message, 'err');
+    return false;
+  }
+}
+async function ledOn()    { updateLedUI(true, 'LED ON', 'Manual'); await espRequest('on'); addLog('ESP32 ← LED ON', 'ok'); }
+async function ledOff()   { updateLedUI(false, 'LED OFF', 'Manual'); await espRequest('off'); addLog('ESP32 ← LED OFF'); }
+async function ledBlink() { updateLedUI(true, 'BLINKING', 'Blink sent'); await espRequest('blink'); addLog('ESP32 ← BLINK', 'info'); setTimeout(() => updateLedUI(false,'LED OFF','Blink done'), 3000); }
+
+async function triggerESP32(filtered) {
+  updateLedUI(true, 'LED ON', filtered.map(f=>f.class).join(', '));
+  await espRequest('on');
+  addLog('ESP32 ← LED ON (' + filtered.map(f=>f.class).join(', ') + ')', 'ok');
+  if(ledTimeout) clearTimeout(ledTimeout);
+  ledTimeout = setTimeout(async () => {
+    updateLedUI(false, 'LED OFF', 'Auto off after 5s');
+    await espRequest('off');
+  }, 5000);
+}
+
+async function testEsp32() {
+  document.getElementById('espSpinner').classList.add('show');
+  addLog('Testing ESP32 at ' + getEspIp() + '…', 'info');
+  await espRequest('blink');
+  document.getElementById('espSpinner').classList.remove('show');
+  setDot('espStatus', 'active');
+  document.getElementById('espStatusText').textContent = 'Test sent — check LED';
+  document.getElementById('espConnBadge').textContent = 'ESP32 ' + getEspIp();
+  addLog('ESP32 test sent.', 'ok');
+}
+
+function updateLedUI(on, stateText, subText) {
+  ledState = on;
+  document.getElementById('ledBulb').classList.toggle('on', on);
+  document.getElementById('ledStateText').textContent = stateText;
+  document.getElementById('ledSubText').textContent = subText;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function setDot(id, cls) {
+  const d = document.getElementById(id);
+  d.className = 'dot' + (cls ? ' ' + cls : '');
+}
+function addLog(msg, type='') {
+  const lw = document.getElementById('logWrap');
+  const d = new Date();
+  const t = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+  lw.innerHTML += '<div class="log-line ' + type + '">[' + t + '] ' + msg + '</div>';
+  lw.scrollTop = lw.scrollHeight;
+}
+</script>
+</body>
+</html>
