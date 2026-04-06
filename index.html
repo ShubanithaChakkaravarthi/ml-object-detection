@@ -209,6 +209,16 @@ input::placeholder{color:var(--text3);}
 /* LIVE DETECT TOGGLE */
 .live-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;font-size:11px;color:var(--text2);border-top:1px solid var(--border);margin-top:8px;}
 
+/* CAMERA CONTROLS */
+.cam-controls-bar{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap;padding:8px 10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);}
+.cam-controls-bar label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;white-space:nowrap;}
+.zoom-slider{-webkit-appearance:none;appearance:none;width:90px;height:4px;border-radius:2px;background:var(--border2);outline:none;cursor:pointer;}
+.zoom-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 0 4px rgba(0,229,160,.4);}
+.rotate-btns{display:flex;gap:4px;}
+.flip-btn-active{background:rgba(0,179,255,.18)!important;color:var(--accent2)!important;border-color:rgba(0,179,255,.5)!important;}
+.cam-transform-info{font-size:9px;color:var(--text3);margin-top:4px;}
+#camVideo{transition:transform .25s ease;transform-origin:center center;}
+
 ::-webkit-scrollbar{width:4px;height:4px;}
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
@@ -306,9 +316,26 @@ input::placeholder{color:var(--text3);}
             <div class="btn-row">
               <button id="startCamBtn" onclick="startCamera()">▶ Start</button>
               <button id="stopCamBtn" onclick="stopCamera()" disabled>■ Stop</button>
+              <button class="blue" id="flipCamBtn" onclick="flipCamera()" title="Switch front/back camera">🔄 Flip</button>
               <button class="primary" id="scanBtn" onclick="scanFrame()" disabled>🔍 Scan Frame</button>
               <div class="spinner" id="camSpinner"></div>
             </div>
+
+            <!-- Camera Transform Controls -->
+            <div class="cam-controls-bar">
+              <label>🔍 Zoom</label>
+              <input type="range" class="zoom-slider" id="zoomSlider" min="1" max="3" step="0.1" value="1" oninput="applyTransform()" />
+              <span id="zoomVal" style="font-size:10px;color:var(--accent);min-width:28px;">1×</span>
+              <label style="margin-left:6px;">↻ Rotate</label>
+              <div class="rotate-btns">
+                <button class="sm" onclick="rotateCam(-90)" title="Rotate left">↺</button>
+                <button class="sm" id="resetTransformBtn" onclick="resetTransform()">Reset</button>
+                <button class="sm" onclick="rotateCam(90)" title="Rotate right">↻</button>
+              </div>
+              <button class="sm" id="mirrorBtn" onclick="toggleMirror()" title="Mirror/flip horizontally" style="margin-left:2px;">⇔ Mirror</button>
+            </div>
+            <div class="cam-transform-info" id="transformInfo">Zoom: 1× · Rotation: 0° · Mirror: Off</div>
+
             <div class="live-row">
               <span>🔴 Live detect (auto every 2s)</span>
               <div class="toggle" id="tog-live" onclick="toggleLive()"><div class="toggle-knob"></div></div>
@@ -482,6 +509,11 @@ let currentCamTab = 'webcam';
 let theme = 'dark';
 let liveDetect = false;
 let liveTimer = null;
+// Camera transform state
+let camFacingMode = 'environment'; // 'environment' = back, 'user' = front
+let camZoom = 1;
+let camRotation = 0;
+let camMirror = false;
 
 // ─── Load TensorFlow Model ────────────────────────────────────────────────────
 async function loadModel() {
@@ -713,23 +745,90 @@ function drawBoxes(canvas, imgEl, predictions, allFiltered, filterActive) {
 }
 
 // ─── Webcam ───────────────────────────────────────────────────────────────────
-async function startCamera() {
+async function startCamera(facingOverride) {
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video:{ width:{ideal:1280}, height:{ideal:720} } });
+    if(camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+    if(facingOverride) camFacingMode = facingOverride;
+    const constraints = {
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        facingMode: { ideal: camFacingMode }
+      }
+    };
+    camStream = await navigator.mediaDevices.getUserMedia(constraints);
     const video = document.getElementById('camVideo');
     video.srcObject = camStream;
     video.style.display = 'block';
+    applyTransform();
     document.getElementById('camPlaceholder').style.display = 'none';
     document.getElementById('camCanvas').style.display = 'block';
     document.getElementById('startCamBtn').disabled = true;
     document.getElementById('stopCamBtn').disabled = false;
     document.getElementById('scanBtn').disabled = false;
     setDot('camStatus', 'active');
-    document.getElementById('camStatusText').textContent = 'Camera active';
-    addLog('Webcam started.', 'ok');
+    const camLabel = camFacingMode === 'environment' ? 'Back camera' : 'Front camera';
+    document.getElementById('camStatusText').textContent = 'Camera active (' + camLabel + ')';
+    // Update flip button style
+    const fb = document.getElementById('flipCamBtn');
+    fb.textContent = camFacingMode === 'environment' ? '🔄 Front' : '🔄 Back';
+    addLog(camLabel + ' started.', 'ok');
   } catch(e) {
     addLog('Camera error: ' + e.message, 'err');
   }
+}
+
+// ─── Camera Flip (front/back) ─────────────────────────────────────────────────
+async function flipCamera() {
+  camFacingMode = camFacingMode === 'environment' ? 'user' : 'environment';
+  if(camStream) {
+    await startCamera(camFacingMode);
+  } else {
+    addLog('Start camera first, then flip.', 'info');
+    const fb = document.getElementById('flipCamBtn');
+    fb.textContent = camFacingMode === 'environment' ? '🔄 Flip→Back' : '🔄 Flip→Front';
+  }
+}
+
+// ─── Camera Transform (Zoom / Rotate / Mirror) ────────────────────────────────
+function applyTransform() {
+  const slider = document.getElementById('zoomSlider');
+  camZoom = parseFloat(slider.value);
+  document.getElementById('zoomVal').textContent = camZoom.toFixed(1) + '×';
+  const video = document.getElementById('camVideo');
+  const scaleX = camMirror ? -camZoom : camZoom;
+  video.style.transform = `rotate(${camRotation}deg) scale(${scaleX}, ${camZoom})`;
+  updateTransformInfo();
+}
+
+function rotateCam(deg) {
+  camRotation = (camRotation + deg + 360) % 360;
+  applyTransform();
+}
+
+function toggleMirror() {
+  camMirror = !camMirror;
+  const btn = document.getElementById('mirrorBtn');
+  btn.classList.toggle('flip-btn-active', camMirror);
+  btn.textContent = camMirror ? '⇔ Mirror ✓' : '⇔ Mirror';
+  applyTransform();
+}
+
+function resetTransform() {
+  camZoom = 1;
+  camRotation = 0;
+  camMirror = false;
+  document.getElementById('zoomSlider').value = 1;
+  document.getElementById('mirrorBtn').classList.remove('flip-btn-active');
+  document.getElementById('mirrorBtn').textContent = '⇔ Mirror';
+  const video = document.getElementById('camVideo');
+  video.style.transform = 'none';
+  updateTransformInfo();
+}
+
+function updateTransformInfo() {
+  document.getElementById('transformInfo').textContent =
+    'Zoom: ' + camZoom.toFixed(1) + '× · Rotation: ' + camRotation + '° · Mirror: ' + (camMirror ? 'On' : 'Off');
 }
 
 function stopCamera() {
